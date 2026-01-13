@@ -12,11 +12,15 @@ from bs4 import BeautifulSoup
 
 # --- CONFIGURATION ---
 RSS_URL = "https://jumitech.co.ke/feeds/posts/default?alt=rss"  # Verify this is your actual feed URL
-RECIPIENTS = ["jumitechke@outlook.com", "deniskinyua997@gmail.com"] # Add all 5 emails here
+# --- NEW WAY (SAFE USING GITHUB SECRETS) ---
+import os
 
-# Email Settings (Use an App Password if using Gmail)
-EMAIL_SENDER = "antonymwenda913@gmail.com"
-EMAIL_PASSWORD = "nhsu jimr nrey kfzk" 
+EMAIL_SENDER = os.environ.get('EMAIL_SENDER')
+EMAIL_PASSWORD = os.environ.get('EMAIL_PASSWORD')
+
+# We split the string by commas to turn it back into a list
+recipients_raw = os.environ.get('RECIPIENT_LIST')
+RECIPIENTS = [email.strip() for email in recipients_raw.split(',')] 
 
 # File to remember sent posts
 HISTORY_FILE = "sent_posts.txt"
