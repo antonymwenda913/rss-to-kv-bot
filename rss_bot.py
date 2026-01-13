@@ -11,7 +11,7 @@ from email import encoders
 from bs4 import BeautifulSoup
 
 # --- CONFIGURATION ---
-RSS_URL = "https://jumitech.co.ke/feeds/posts/default?alt=rss"
+RSS_URL = "https://www.blogger.com/feeds/6488460577525830136/posts/default?alt=rss"
 
 # Fetching secrets from GitHub Environment
 EMAIL_SENDER = os.environ.get('EMAIL_SENDER')
