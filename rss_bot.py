@@ -11,16 +11,15 @@ from email import encoders
 from bs4 import BeautifulSoup
 
 # --- CONFIGURATION ---
-RSS_URL = "https://jumitech.co.ke/feeds/posts/default?alt=rss"  # Verify this is your actual feed URL
-# --- NEW WAY (SAFE USING GITHUB SECRETS) ---
-import os
+RSS_URL = "https://jumitech.co.ke/feeds/posts/default?alt=rss"
 
+# Fetching secrets from GitHub Environment
 EMAIL_SENDER = os.environ.get('EMAIL_SENDER')
 EMAIL_PASSWORD = os.environ.get('EMAIL_PASSWORD')
+recipients_raw = os.environ.get('RECIPIENT_LIST', "")
 
-# We split the string by commas to turn it back into a list
-recipients_raw = os.environ.get('RECIPIENT_LIST')
-RECIPIENTS = [email.strip() for email in recipients_raw.split(',')] 
+# Convert comma-separated string from secrets into a Python list
+RECIPIENTS = [email.strip() for email in recipients_raw.split(',') if email.strip()]
 
 # File to remember sent posts
 HISTORY_FILE = "sent_posts.txt"
@@ -53,7 +52,6 @@ def extract_arrays_from_html(html_content):
 
     # 1. Extract Bullet Points/Numbered Lists
     for list_tag in soup.find_all(['ul', 'ol']):
-        # Create a clean list of the text inside the list items
         clean_list = [li.get_text(strip=True) for li in list_tag.find_all('li')]
         if clean_list:
             extracted_data["detected_lists"].append(clean_list)
@@ -68,6 +66,10 @@ def extract_arrays_from_html(html_content):
 
 def send_email(subject, body, file_path, recipients):
     """Sends the email with the HTML/JSON attachment."""
+    if not recipients:
+        print("❌ No recipients found. Check your RECIPIENT_LIST secret.")
+        return
+
     try:
         msg = MIMEMultipart()
         msg['From'] = EMAIL_SENDER
@@ -77,14 +79,14 @@ def send_email(subject, body, file_path, recipients):
         msg.attach(MIMEText(body, 'plain'))
 
         # Attach the file
-        attachment = open(file_path, "rb")
-        part = MIMEBase('application', 'octet-stream')
-        part.set_payload(attachment.read())
-        encoders.encode_base64(part)
-        part.add_header('Content-Disposition', f"attachment; filename= {os.path.basename(file_path)}")
-        msg.attach(part)
+        with open(file_path, "rb") as attachment:
+            part = MIMEBase('application', 'octet-stream')
+            part.set_payload(attachment.read())
+            encoders.encode_base64(part)
+            part.add_header('Content-Disposition', f"attachment; filename= {os.path.basename(file_path)}")
+            msg.attach(part)
 
-        # Send
+        # Send using Gmail SMTP
         server = smtplib.SMTP('smtp.gmail.com', 587)
         server.starttls()
         server.login(EMAIL_SENDER, EMAIL_PASSWORD)
@@ -107,7 +109,7 @@ def job():
 
     # 2. Look at the NEWEST post first
     latest_post = feed.entries[0]
-    post_id = latest_post.get('id', latest_post.link) # Use Link as ID if ID is missing
+    post_id = latest_post.get('id', latest_post.link)
 
     # 3. Check if we've seen it
     if post_id in sent_posts:
@@ -117,30 +119,31 @@ def job():
     print(f"🚀 New Post Found: {latest_post.title}")
 
     # 4. Extract Data & Arrays
-    content = latest_post.get('content', [{'value': latest_post.summary}])[0]['value']
+    content_list = latest_post.get('content', [{'value': latest_post.summary}])
+    content = content_list[0]['value']
     extra_data = extract_arrays_from_html(content)
     
     post_data = {
         "title": latest_post.title,
         "link": latest_post.link,
         "published": latest_post.published,
-        "tags": [tag.term for tag in latest_post.get('tags', [])], # Array of tags
-        "images": extra_data['images'], # Array of images
-        "content_lists": extra_data['detected_lists'], # Array of lists found in text
+        "tags": [tag.term for tag in latest_post.get('tags', [])],
+        "images": extra_data['images'],
+        "content_lists": extra_data['detected_lists'],
         "full_content": content
     }
 
-    # 5. Create JSON file (saved as .html for easy viewing)
+    # 5. Create JSON file inside an HTML wrapper
     json_output = json.dumps(post_data, indent=4)
     filename = f"post_update_{int(time.time())}.html"
     
-    # We wrap the JSON in simple HTML so it's easy to read/edit
     html_content = f"""
     <html>
+    <head><title>Edit Post Data</title></head>
     <body>
         <h2>New Post Data for Editing</h2>
-        <p>Copy the code below for Cloudflare KV:</p>
-        <textarea style="width:100%; height:500px;">{json_output}</textarea>
+        <p>Review the JSON below, edit if necessary, and use for Cloudflare KV:</p>
+        <textarea style="width:100%; height:500px; font-family:monospace;">{json_output}</textarea>
     </body>
     </html>
     """
@@ -149,7 +152,7 @@ def job():
         f.write(html_content)
 
     # 6. Send Email
-    email_body = f"A new post '{latest_post.title}' has been published. Please find the JSON extraction attached."
+    email_body = f"A new post '{latest_post.title}' has been published. Please find the JSON extraction attached for review."
     send_email(f"New RSS Post: {latest_post.title}", email_body, filename, RECIPIENTS)
 
     # 7. Remember this post
@@ -159,7 +162,7 @@ def job():
 # Check every 5 minutes
 schedule.every(5).minutes.do(job)
 
-# Run once immediately to test (Optional)
+# Run once immediately on startup
 job() 
 
 print("🤖 Bot is running. Press Ctrl+C to stop.")
